@@ -21,8 +21,6 @@ def fieldFunction(pos):
 def generateGrid():
     dim = bpy.context.scene.my_props.CountProp
     spacing = 1
-    ctrl = bpy.data.objects["CTRL"]     #the control object
-    maxScale = 0.2
 
     obj = bpy.context.selected_objects[0]
 
