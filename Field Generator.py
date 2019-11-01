@@ -1,7 +1,22 @@
 import bpy
 import math
+import numpy as np
 from bpy.props import (IntProperty, StringProperty, BoolProperty,IntProperty,FloatProperty,FloatVectorProperty,EnumProperty,PointerProperty)
 from bpy.types import (Panel,Operator,AddonPreferences,PropertyGroup)
+
+                        #DEFINE THE FIELD HERE
+def fieldFunction(pos):
+    fps = bpy.context.scene.render.fps
+    frame = bpy.context.scene.frame_current
+    startFrame = bpy.context.scene.my_props.startFrame
+    t = (frame-startFrame)/fps
+
+    x = 1*t
+    y = 1
+    z = 1
+    return np.array([x,y,z])
+
+#-----------------------------------------------------------
 
 def generateGrid():
     dim = bpy.context.scene.my_props.CountProp
@@ -30,28 +45,50 @@ def generateGrid():
                     driv.use_self = True
 
                     driv.expression = "getScale(self)"
+
+                #add drivers on the rotation
+                for t in range(3):
+                    driv = new_obj.driver_add("rotation_euler", t).driver
+                    driv.type = 'SCRIPTED'
+                    driv.use_self = True
+
+                    driv.expression = "getRotation(self, "+str(t)+")"
+
+                #add drivers on the Object ID (for the color)
+
+                driv = new_obj.driver_add("pass_index").driver
+                driv.type = 'SCRIPTED'
+                driv.use_self = True
+
+                driv.expression = "getObjID(self)"
+
     bpy.app.driver_namespace['getScale'] = getScale
+    bpy.app.driver_namespace['getRotation'] = getRotation
+    bpy.app.driver_namespace['getObjID'] = getObjID
 
 def getScale(obj):
     scaleMultiplier = bpy.context.scene.my_props.scaleMultiplier
     versors = fieldFunction(obj.location)
-    scale = 0
-    for i in range(3):
-        scale += versors[i]**2
-    return (scale**0.5)*scaleMultiplier
+    scale = (np.dot(versors, versors))**0.5
+    return scale*scaleMultiplier
 
-def getDistance(ctrl, obj):
-    sum = 0
-    for i in range(3):
-        sum += (ctrl.location[i] - obj.location[i])**2
-    return sum**0.5
+def getRotation(obj, t):
+    field = fieldFunction(obj.location)
+    x = -math.atan(field[1] / field[2])
+    y = 0
+    z = -math.atan(field[0] / field[1])
+    rot = [x,y,z]
+    return rot[t]
 
-                        #DEFINE THE FIELD HERE
-def fieldFunction(pos):
-    x = 0
-    y = 1
-    z = 0
-    return [x,y,z]
+def getObjID(obj):
+    minScale = bpy.context.scene.my_props.minScale
+    maxScale = bpy.context.scene.my_props.maxScale
+
+    scale = getScale(obj)
+
+    ID = (scale-minScale)/(maxScale-minScale)*100+100
+    return ID
+
 
 def solveDifferential(frame):    #returns the position for each frame
     fps = bpy.context.scene.render.fps
@@ -104,6 +141,21 @@ class FIELD_OT_simulate(bpy.types.Operator):
             simulate(obj)
         return {'FINISHED'}
 
+class FIELD_OT_update_field_equation(bpy.types.Operator):
+    bl_idname = "myops.field_update_field_equation"
+    bl_label = "use this to update drivers"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self,context):
+        bpy.app.driver_namespace['getScale'] = getScale
+        bpy.app.driver_namespace['getRotation'] = getRotation
+        bpy.app.driver_namespace['getObjID'] = getObjID
+
+        frame = bpy.context.scene.frame_current
+        bpy.context.scene.frame_set(frame+1)
+        bpy.context.scene.frame_set(frame)
+        return {'FINISHED'}
+
 #---------------------------------------UI
 
 class MySettings(PropertyGroup):
@@ -143,10 +195,29 @@ class MySettings(PropertyGroup):
         max=10000.0,
         soft_min=0.0,
         soft_max=10000.0,
-        step=1,
-        precision=0,
         unit='NONE'
         )
+    maxScale  : FloatProperty(
+        name = "maxScale",
+        description = "Scale for which the arrow is red",
+        default = 0.5,
+        min=0.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=100.0,
+        unit='NONE'
+        )
+    minScale  : FloatProperty(
+        name = "minScale",
+        description = "Scale for which the arrow is green",
+        default = 0.05,
+        min=0.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=100.0,
+        unit='NONE'
+        )
+
 
 
 class UI_PT_class(bpy.types.Panel):
@@ -168,13 +239,15 @@ class UI_PT_class(bpy.types.Panel):
 
         layout.prop(rd, "CountProp", text = "Count")
         layout.prop(rd, "SpacingProp", text = "Spacing")
+        layout.prop(rd, "scaleMultiplier", text = "Scale Multiplier")
+        layout.prop(rd, "maxScale", text = "Max scale")
+        layout.prop(rd, "minScale", text = "Min scale")
         layout.operator("myops.field_generate_grid", text = "Create Grid")
 
         col = layout.column()
         col.prop(rd, "startFrame", text = "start")
-        col.prop(rd, "endFrame", text = "end")
-        col.prop(rd, "scaleMultiplier", text = "Scale Multiplier")
         layout.operator("myops.field_simulate", text = "Bake")
+        layout.operator("myops.field_update_field_equation", text = "Update Drivers")
 
 
 # ----------------------- REGISTER ---------------------
@@ -184,6 +257,7 @@ classes = (
     UI_PT_class,
     FIELD_OT_generate_grid,
     FIELD_OT_simulate,
+    FIELD_OT_update_field_equation,
 )
 
 def register():
