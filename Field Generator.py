@@ -258,19 +258,19 @@ class MySettings(PropertyGroup):
 		soft_max=100.0,
 		unit='NONE'
 		)
-	P  : StringProperty(
+	stringX  : StringProperty(
 		name = "P",
 		description = "x component of the vector field",
 		default = x,
 		unit='NONE'
 		)
-	Q  : StringProperty(
+	stringY  : StringProperty(
 		name = "Q",
 		description = "y component of the vector field",
 		default = x,
 		unit='NONE'
 		)
-	R  : StringProperty(
+	stringZ  : StringProperty(
 		name = "R",
 		description = "z component of the vector field",
 		default = x,
