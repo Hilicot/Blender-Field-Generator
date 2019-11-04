@@ -1,67 +1,55 @@
 import bpy
 from math import *
 import numpy as np
-
-import sympy as sp
-
+import mathutils as mathutils
 from bpy.props import (IntProperty, StringProperty, BoolProperty,IntProperty,FloatProperty,FloatVectorProperty,EnumProperty,PointerProperty)
 from bpy.types import (Panel,Operator,AddonPreferences,PropertyGroup)
-from sympy import *
+from scipy.integrate import odeint
+from colour import Color
+
 
 def sigmoid(x):
   return 1 / (1 + exp(-x))
 
 						#DEFINE THE FIELD HERE
+def vectorfield(w, t):
+		x,y,z = w
+		#f = [bpy.context.scene.my_props.P, bpy.context.scene.my_props.Q, bpy.context.scene.my_props.R]
+		f=[x,y,z]
+		return f
+
+obj = bpy.context.selected_objects[0]
+startFrame=bpy.context.scene.my_props.startFrame #this throws error please check
+bpy.context.scene.frame_set(startFrame)     #switch to the startFrame (you get it from the IntProperty)
+initpos = obj.location      
+x0 = initpos[0]
+y0 = initpos[1]
+z0 = initpos[2]
+abserr = 1.0e-8
+relerr = 1.0e-6
+stoptime = bpy.context.scene.my_props.endFrame
+numpoints = 250
+time = [stoptime * float(i) / (numpoints - 1) for i in range(numpoints)]
+w0 = [x0, y0, z0]
+
+wsol = odeint(vectorfield, w0, time, 
+			  atol=abserr, rtol=relerr)
+
 
 def fieldFunction(pos):
-	stringX=bpy.context.scene.my_props.stringX
-	stringY=bpy.context.scene.my_props.stringY
-	stringZ=bpy.context.scene.my_props.stringZ
-
 	fps = bpy.context.scene.render.fps
 	frame = bpy.context.scene.frame_current
 	startFrame = bpy.context.scene.my_props.startFrame
-	t = (frame-startFrame)/fps
-
-    x = pos[0]
-    y = pos[1]                  #x, y, z, parameters in the user expression are relative to the input position. this is not correct, but it's an accettable approximation for small movements
-    z = pos[2]
-
-    codeX = """
-    def X(t, x, y, z):
-        return %s
-    """ % stringX
-    codeY = """
-    def Y(t, x, y, z):
-        return %s
-    """ % stringY
-    codeZ = """
-    def Z(t, x, y, z):
-        return %s
-    """ % stringZ
-
-    x = exec(codeX)
-    y = exec(codeY)
-    z = exec(codeZ)
-
-
-    '''
-	x = np.exp(t)
-	y = np.exp(t)
-	z = np.exp(t)'''
+	x = [w[0] for w in wsol] #wsol is a list of lists, with each index containing a coordinate
+	y = [w[1] for w in wsol] #hence I've supposedly seperated out the x, y and z components
+	z = [w[2] for w in wsol]     
 	return np.array([x,y,z])
 
-def solveODE(fn, IC):
-	t, A0 = symbols('t, A0')
-	A = Function('A')
-	A0=IC #inital condition of the object
-	eqn= Eq(diff(A(t),t), A(t))
-	sol=dsolve(eqn, N(t), ics={A(0):A0})
-	ret sol
 #-----------------------------------------------------------
 
 def generateGrid():
 	dim = bpy.context.scene.my_props.CountProp
+	samples=np.linspace(-(dim-1)/2, (dim-1)/2, dim)
 	spacing = 1
 	maxScale = 0.2
 
@@ -70,85 +58,152 @@ def generateGrid():
 	parent_coll = bpy.context.selected_objects[0].users_collection[0]
 	coll = bpy.data.collections.new("Grid")
 	parent_coll.children.link(coll)
-	for i in range(dim):
-		for j in range(dim):
-			for k in range(dim):
+	global location
+	location=[]
+	for i in samples:
+		for j in samples:
+			for k in samples:
 				new_obj = obj.copy()
-				#new_obj.data = obj.data.copy()
 				new_obj.animation_data_clear()
 				coll.objects.link(new_obj)
-				new_obj.location = ((i-dim/2)*spacing, (j-dim/2)*spacing, (k-dim/2)*spacing)  #define arrows positions (here they are centered on the world origin)
-
-				#add drivers on the scale
-				for t in range(3):
-					driv = new_obj.driver_add("scale", t).driver
-					driv.type = 'SCRIPTED'
-					driv.use_self = True
-
-					driv.expression = "getScale(self)"
-
-				#add drivers on the rotation
-				for t in range(3):
-					driv = new_obj.driver_add("rotation_euler", t).driver
-					driv.type = 'SCRIPTED'
-					driv.use_self = True
-
-					driv.expression = "getRotation(self, "+str(t)+")"
+				new_obj.location = (i,j,k)  #define arrows positions (here they are centered on the world origin)
+				norm = getScale(new_obj.location)
+				new_obj.scale = [norm,norm,norm]
+				getRotation(new_obj.location)
+				new_obj.rotation_mode = 'QUATERNION'
+				DirVec=getRotation(new_obj.location)
+				new_obj.rotation_quaternion = DirVec.to_track_quat('Z','Y')
 
 				#add drivers on the Object ID (for the color)
-
 				driv = new_obj.driver_add("pass_index").driver
 				driv.type = 'SCRIPTED'
 				driv.use_self = True
 
 				driv.expression = "getObjID(self)"
 
-	bpy.app.driver_namespace['getScale'] = getScale
-	bpy.app.driver_namespace['getRotation'] = getRotation
+
+	#bpy.app.driver_namespace['getRotation'] = getRotation
 	bpy.app.driver_namespace['getObjID'] = getObjID
 
-def getScale(obj):
+def getScale(pos):
+	RHSP = bpy.context.scene.my_props.P 
+	RHSQ = bpy.context.scene.my_props.Q 
+	RHSR = bpy.context.scene.my_props.R
 	scaleMultiplier = bpy.context.scene.my_props.scaleMultiplier
-	versors = fieldFunction(obj.location)
-	scale = (np.dot(versors, versors))**0.5
-	return scale*scaleMultiplier
+	x = pos[0]
+	y = pos[1]                 
+	z = pos[2]
+	P= (eval(RHSP, {'x': x, 'y': y, 'z': z }))
+	Q= (eval(RHSQ, {'x': x, 'y': y, 'z': z }))
+	R= (eval(RHSR, {'x': x, 'y': y, 'z': z }))
+	vector=np.array([P,Q,R])
+	actual_norm=(np.dot(vector, vector))**.5
+	display_norm =sigmoid(actual_norm)*scaleMultiplier
+	if actual_norm==0:
+		return 0
+	else:
+		return display_norm
+	#return actual_norm*scaleMultiplier #for now
 
-def getRotation(obj, t):
-	field = fieldFunction(obj.location)
-	x = -atan(field[1] / field[2])
-	y = 0
-	z = -atan(field[0] / field[1])
-	rot = [x,y,z]
-	return rot[t]
+def getRotation(pos):
+	RHSP = bpy.context.scene.my_props.P 
+	RHSQ = bpy.context.scene.my_props.Q 
+	RHSR = bpy.context.scene.my_props.R
+
+	x = pos[0]
+	y = pos[1]                 
+	z = pos[2]
+
+	P= (eval(RHSP, {'x': x, 'y': y, 'z': z }))
+	Q= (eval(RHSQ, {'x': x, 'y': y, 'z': z }))
+	R= (eval(RHSR, {'x': x, 'y': y, 'z': z }))
+
+	vector=(P,Q,R)
+	DirectionVector = mathutils.Vector(vector) 
+	return DirectionVector
 
 def getObjID(obj):
 	minScale = bpy.context.scene.my_props.minScale
 	maxScale = bpy.context.scene.my_props.maxScale
 
-	scale = getScale(obj)
+	scale = getScale(obj.location)
 
 	ID = (scale-minScale)/(maxScale-minScale)*100+100
 	return ID
 
+"""
 
-def solveDifferential(frame):    #returns the position for each frame
-	fps = bpy.context.scene.render.fps
-	startFrame = bpy.context.scene.my_props.startFrame
-	t = (frame-startFrame)/fps
-	print("time = "+str(t))
-	x = 0
-	y = (t**2)/2        #if initial condition --> y(0) = 0
-	z = 0
-	print(str([x,y,z]))
-	return [x,y,z]
+#--------COLOR_LOGIC---------------
+#absolute agony XDXDXD
+def hex_to_RGB(hex):
+  return [int(hex[i:i+2], 16) for i in range(1,6,2)]
+
+def RGB_to_hex(RGB):
+  RGB = [int(x) for x in RGB]
+  return "#"+"".join(["0{0:x}".format(v) if v < 16 else
+            "{0:x}".format(v) for v in RGB])
+
+def color_dict(gradient):
+  return [[RGB[0], RGB[1], RGB[2]] for RGB in gradient]
+
+def linear_gradient(start_hex="#1C758A", finish_hex="#F7A1A3", n=100):
+  s = hex_to_RGB(start_hex)
+  f = hex_to_RGB(finish_hex)
+
+  RGB_list = [s]
+
+  for t in range(1, n):
+    curr_vector = [
+      int(s[j] + (float(t)/(n-1))*(f[j]-s[j]))
+      for j in range(3)
+    ]
+
+    RGB_list.append(curr_vector)
+
+  return color_dict(RGB_list)
+
+colors=linear_gradient()
+#print(colors)
+
+def rgb_to_cmyk(r, g, b):
+    if (r, g, b) == (0, 0, 0):
+        # black
+        return 0, 0, 0, 100
+
+    # rgb [0,255] -> cmy [0,1]
+    c = 1 - r / 255
+    m = 1 - g / 255
+    y = 1 - b / 255
+
+    # extract out k [0, 1]
+    min_cmy = min(c, m, y)
+    c = (c - min_cmy) / (1 - min_cmy)
+    m = (m - min_cmy) / (1 - min_cmy)
+    y = (y - min_cmy) / (1 - min_cmy)
+    k = min_cmy
+
+    return [c * 100, m * 100, y * 100, k * 100]
+#----------------ignore till this(nevermind ignore the color BS)-----------
+
+CMYK_colors= [list(rgb_to_cmyk(*w)) for w in colors ] #a list of cmyk lists
+#print(CMYK_colors)
+
+def getColor(norm):
+	colornorm=int(norm)
+	return CMYK_colors[1000*colornorm] #assuming maxScale is 0.5 for now. 100 samples in color, and hence 200
+
+"""
 
 def simulate(obj):
 	startFrame = bpy.context.scene.my_props.startFrame
 	endFrame = bpy.context.scene.my_props.endFrame
+	x = [w[0] for w in wsol]
+	y = [w[1] for w in wsol]
+	z = [w[2] for w in wsol]    
 	for i in range(endFrame-startFrame+1):
 		frame = i+startFrame
 		bpy.context.scene.frame_set(frame)
-		pos = solveDifferential(frame)
+		pos = (x[i], y[i], z[i])    #the position is taken from wsol, please improvise this code, I've unnecessarily, unpacked wsol again 
 
 		obj.keyframe_insert("location", frame=frame)
 		if i == 0:
@@ -161,7 +216,7 @@ def simulate(obj):
 			fc[j].keyframe_points[k+i].co[1] = pos[j]
 			print(fc[j].keyframe_points[k+i].co[1])
 
-#-------------------------CLASSES
+#-------------------------CLASSES--------------------------
 
 class FIELD_OT_generate_grid(bpy.types.Operator):
 	bl_idname = "myops.field_generate_grid"
@@ -188,10 +243,9 @@ class FIELD_OT_update_field_equation(bpy.types.Operator):
 	bl_options = {'REGISTER', 'UNDO'}
 
 	def execute(self,context):
-		bpy.app.driver_namespace['getScale'] = getScale
-		bpy.app.driver_namespace['getRotation'] = getRotation
+		#bpy.app.driver_namespace['getScale'] = getScale
+		#bpy.app.driver_namespace['getRotation'] = getRotation
 		bpy.app.driver_namespace['getObjID'] = getObjID
-
 		frame = bpy.context.scene.frame_current
 		bpy.context.scene.frame_set(frame+1)
 		bpy.context.scene.frame_set(frame)
@@ -203,14 +257,14 @@ class MySettings(PropertyGroup):
 	CountProp : IntProperty(
 		name = "Count",
 		description = "number of arrows on an edge",
-		default = 10,
+		default = 5,
 		min=0,
 		max=100
 		)
 	SpacingProp  : IntProperty(
 		name = "Spacing",
 		description = "",
-		default = 1,
+		default = 2,
 		min=0,
 		max=10000
 		)
@@ -231,7 +285,7 @@ class MySettings(PropertyGroup):
 	scaleMultiplier  : FloatProperty(
 		name = "scale Multiplier",
 		description = "",
-		default = 1,
+		default = 0.1,
 		min=0.0,
 		max=10000.0,
 		soft_min=0.0,
@@ -258,26 +312,24 @@ class MySettings(PropertyGroup):
 		soft_max=100.0,
 		unit='NONE'
 		)
-	stringX  : StringProperty(
+	P : StringProperty(
 		name = "P",
 		description = "x component of the vector field",
-		default = x,
-		unit='NONE'
+		default = 'x',
+
 		)
-	stringY  : StringProperty(
+	Q  : StringProperty(
 		name = "Q",
 		description = "y component of the vector field",
-		default = x,
-		unit='NONE'
+		default = 'y',
+
 		)
-	stringZ  : StringProperty(
+	R  : StringProperty(
 		name = "R",
 		description = "z component of the vector field",
-		default = x,
-		unit='NONE'
+		default = 'z',
+
 		)
-
-
 
 class UI_PT_class(bpy.types.Panel):
 	"""Creates a Panel"""
@@ -308,6 +360,7 @@ class UI_PT_class(bpy.types.Panel):
 
 		col = layout.column()
 		col.prop(rd, "startFrame", text = "start")
+		col.prop(rd, "endFrame", text = "end")
 		layout.operator("myops.field_simulate", text = "Bake")
 		layout.operator("myops.field_update_field_equation", text = "Update Drivers")
 
@@ -328,14 +381,11 @@ def register():
 		register_class(cls)
 	bpy.types.Scene.my_props = PointerProperty(type=MySettings)
 
-
-
 def unregister():
 	from bpy.utils import unregister_class
 	for cls in reversed(classes):
 		unregister_class(cls)
 	del bpy.types.Scene.my_props
-
 
 if __name__ == "__main__":
 	register()
