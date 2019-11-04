@@ -20,11 +20,17 @@ def vectorfield(w, t):
 
 obj = bpy.context.selected_objects[0]
 startFrame=bpy.context.scene.my_props.startFrame #this throws error please check
+"""
 bpy.context.scene.frame_set(startFrame)     #switch to the startFrame (you get it from the IntProperty)
 initpos = obj.location      
 x0 = initpos[0]
 y0 = initpos[1]
 z0 = initpos[2]
+"""
+x0=1
+y0=1
+z0=1
+
 abserr = 1.0e-8
 relerr = 1.0e-6
 stoptime = bpy.context.scene.my_props.endFrame
@@ -49,15 +55,16 @@ def fieldFunction(pos):
 
 def generateGrid():
 	dim = bpy.context.scene.my_props.CountProp
-	samples=np.linspace(-(dim-1)/2, (dim-1)/2, dim)
-	spacing = 1
-	maxScale = 0.2
+	
+	spacing = bpy.context.scene.my_props.SpacingProp
+	maxScale = bpy.context.scene.my_props.maxScale
 
 	obj = bpy.context.selected_objects[0]
 
 	parent_coll = bpy.context.selected_objects[0].users_collection[0]
 	coll = bpy.data.collections.new("Grid")
 	parent_coll.children.link(coll)
+	samples=np.arange(-(dim-1)*spacing/2,(dim)*spacing/2, spacing, int)
 	global location
 	location=[]
 	for i in samples:
