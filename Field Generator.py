@@ -12,6 +12,9 @@ from colour import Color
 from sympy.physics.vector import ReferenceFrame
 from sympy.physics.vector import curl
 
+x0=0
+y0=0
+z0=0
 
 def sigmoid(x):
   return 1 / (1 + exp(-x))
@@ -25,9 +28,12 @@ def vectorfield(w, t):
         P=bpy.context.scene.my_props.P
         Q= bpy.context.scene.my_props.Q
         R= bpy.context.scene.my_props.R
+		#(isinstance(P, str))
         #f = [bpy.context.scene.my_props.P, bpy.context.scene.my_props.Q, bpy.context.scene.my_props.R]
         f=[eval(P), eval(Q), eval(R)]
+		#f=[x,y,z]
         return f
+
 
 obj = bpy.context.selected_objects[0]
 
@@ -37,7 +43,7 @@ def fieldFunction(pos):
     frame = bpy.context.scene.frame_current
     startFrame = bpy.context.scene.my_props.startFrame
     x = [w[0] for w in wsol] #wsol is a list of lists, with each index containing a coordinate
-    y = [w[1] for w in wsol]
+    y = [w[1] for w in wsol] #hence I've supposedly seperated out the x, y and z components
     z = [w[2] for w in wsol]     
     return np.array([x,y,z])
 
@@ -208,7 +214,7 @@ def simulate(obj,solution):
     for i in range(endFrame-startFrame+1):
         frame = i+startFrame
         bpy.context.scene.frame_set(frame)
-        pos = (x[i], y[i], z[i])   
+        pos = (x[i], y[i], z[i])    #the position is taken from wsol, please improvise this code, I've unnecessarily, unpacked wsol again 
 
         
         if frame==startFrame:
@@ -262,18 +268,8 @@ class FIELD_OT_simulate(bpy.types.Operator):
 
             bpy.context.scene.frame_set(startFrame)     #switch to the startFrame (you get it from the IntProperty)
             initpos = obj.location      
-            """
-            x0 = initpos[0]
-            y0 = initpos[1]
-            z0 = initpos[2]
-            """	
-            x0=0
-            y0=0
-            z0=2.465
-
             abserr = 1.0e-8
             relerr = 1.0e-6
-            #stoptime = bpy.context.scene.my_props.endFrame
             stoptime=endFrame
             numpoints = 250
             time = [stoptime * float(i) / (numpoints - 1) for i in range(numpoints)]
@@ -311,7 +307,18 @@ class FIELD_OT_reset_settings(bpy.types.Operator):
 		bpy.context.scene.my_props.scaleMultiplier=0.1
 		bpy.context.scene.my_props.maxScale=MaxScale
 		bpy.context.scene.my_props.minScale=MinScale
-		#bpy.context.scene.my_props.minScale=MinScale
+		return {'FINISHED'}
+
+class FIELD_OT_set_initial_conditions(bpy.types.Operator):
+    bl_idname = "myops.set_initial_conditions"
+    bl_label = ""
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self,context):
+		global x0,y0,z0
+		x0 = bpy.context.scene.my_props.x0
+		y0 = bpy.context.scene.my_props.y0
+		z0 = bpy.context.scene.my_props.z0
 		return {'FINISHED'}
 
 #---------------------------UI---------------------------------
@@ -365,6 +372,7 @@ class MySettings(PropertyGroup):
         soft_max=100.0,
         unit='NONE'
         )
+
     minScale  : FloatProperty(
         name = "minScale",
         description = "Scale for which the arrow is green",
@@ -391,7 +399,36 @@ class MySettings(PropertyGroup):
         name = "R",
         description = "z component of the vector field",
         default = 'z',
-
+        )
+    x0  : FloatProperty(
+        name = "x0",
+        description = "x coordinate of initial position",
+        default = 0,
+        min=0.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=100.0,
+        unit='NONE'
+        )
+    y0  : FloatProperty(
+        name = "y0",
+        description = "y coordinate of initial position",
+        default = 0,
+        min=0.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=100.0,
+        unit='NONE'
+        )
+    z0  : FloatProperty(
+        name = "z0",
+        description = "z coordinate of initial position",
+        default = 0,
+        min=0.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=100.0,
+        unit='NONE'
         )
 
 class UI_PT_class(bpy.types.Panel):
@@ -422,6 +459,10 @@ class UI_PT_class(bpy.types.Panel):
         layout.operator("myops.field_generate_grid", text = "Create Grid")
 
         col = layout.column()
+        layout.prop(rd, "x0", text = "x0")
+        layout.prop(rd, "y0", text = "y0")
+        layout.prop(rd, "z0", text = "z0")
+		layout.operator("myops.set_initial_conditions", text = "Set Initial Conditions")
         col.prop(rd, "startFrame", text = "start")
         col.prop(rd, "endFrame", text = "end")
         layout.operator("myops.field_simulate", text = "Bake")
@@ -438,7 +479,8 @@ classes = (
     FIELD_OT_generate_grid,
     FIELD_OT_simulate,
     FIELD_OT_update_field_equation,
-	FIELD_OT_reset_settings
+	FIELD_OT_reset_settings,
+	FIELD_OT_set_initial_conditions,
 )
 
 def register():
