@@ -2,10 +2,14 @@ import bpy
 from math import *
 import numpy as np
 import mathutils as mathutils
+
+from sympy.abc import x, y, z
 from bpy.props import (IntProperty, StringProperty, BoolProperty,IntProperty,FloatProperty,FloatVectorProperty,EnumProperty,PointerProperty)
 from bpy.types import (Panel,Operator,AddonPreferences,PropertyGroup)
 from scipy.integrate import odeint
 from colour import Color
+from sympy.physics.vector import ReferenceFrame
+from sympy.physics.vector import curl
 
 
 def sigmoid(x):
@@ -15,11 +19,12 @@ def sigmoid(x):
 def vectorfield(w, t):
 		x,y,z = w
 		#f = [bpy.context.scene.my_props.P, bpy.context.scene.my_props.Q, bpy.context.scene.my_props.R]
-		f=[x,y,z]
+		f=[-y,x,0]
 		return f
 
 obj = bpy.context.selected_objects[0]
-startFrame=bpy.context.scene.my_props.startFrame #this throws error please check
+#startFrame=bpy.context.scene.my_props.startFrame #this throws error please check
+startFrame=0
 """
 bpy.context.scene.frame_set(startFrame)     #switch to the startFrame (you get it from the IntProperty)
 initpos = obj.location      
@@ -33,7 +38,8 @@ z0=1
 
 abserr = 1.0e-8
 relerr = 1.0e-6
-stoptime = bpy.context.scene.my_props.endFrame
+#stoptime = bpy.context.scene.my_props.endFrame
+stoptime=100
 numpoints = 250
 time = [stoptime * float(i) / (numpoints - 1) for i in range(numpoints)]
 w0 = [x0, y0, z0]
@@ -92,6 +98,7 @@ def generateGrid():
 	#bpy.app.driver_namespace['getRotation'] = getRotation
 	bpy.app.driver_namespace['getObjID'] = getObjID
 
+
 def getScale(pos):
 	RHSP = bpy.context.scene.my_props.P 
 	RHSQ = bpy.context.scene.my_props.Q 
@@ -138,68 +145,45 @@ def getObjID(obj):
 	ID = (scale-minScale)/(maxScale-minScale)*100+100
 	return ID
 
-"""
 
-#--------COLOR_LOGIC---------------
-#absolute agony XDXDXD
-def hex_to_RGB(hex):
-  return [int(hex[i:i+2], 16) for i in range(1,6,2)]
+def getCurlAxis(obj, pos):
+	L = bpy.context.scene.my_props.P 
+	M = bpy.context.scene.my_props.Q 
+	N = bpy.context.scene.my_props.R
 
-def RGB_to_hex(RGB):
-  RGB = [int(x) for x in RGB]
-  return "#"+"".join(["0{0:x}".format(v) if v < 16 else
-            "{0:x}".format(v) for v in RGB])
 
-def color_dict(gradient):
-  return [[RGB[0], RGB[1], RGB[2]] for RGB in gradient]
+	R = ReferenceFrame('R')
+	H =L* R.x + M * R.y + N * R.z
+	print(H)
+	F=H.subs([(x, R[0]), (y, R[1]), (z, R[2])])
+	G = curl(F, R)  
+	a = pos[0]
+	b = pos[1]                 
+	c = pos[2]
+	lis = list(G.args[0][0].subs([(R[0], a), (R[1], b), (R[2], c)]))
+	#lis=[0,0,-2*z]
+	u,v,w=lis[:]
+	print(lis)
+	vector=(u,v,w)
+	DirectionVector = mathutils.Vector(vector)
+	obj.rotation_mode = 'QUATERNION'
+	obj.rotation_quaternion = DirectionVector.to_track_quat('Z','Y')
 
-def linear_gradient(start_hex="#1C758A", finish_hex="#F7A1A3", n=100):
-  s = hex_to_RGB(start_hex)
-  f = hex_to_RGB(finish_hex)
+def getCurlMag(pos):
+	P = bpy.context.scene.my_props.P 
+	Q = bpy.context.scene.my_props.Q 
+	R = bpy.context.scene.my_props.R
 
-  RGB_list = [s]
+	R = ReferenceFrame('R')
+	H = P* R.x +Q * R.y + R * R.z
+	F=H.subs([(x, R[0]), (y, R[1]), (z, R[2])])
 
-  for t in range(1, n):
-    curr_vector = [
-      int(s[j] + (float(t)/(n-1))*(f[j]-s[j]))
-      for j in range(3)
-    ]
+	G = curl(F, R)  
+	u,v,w=list(G.args[0][0].subs([(R[0], x), (R[1], y), (R[2], z)]))
+	curl=np.array([u,v,w])
+	mag=(np.dot(curl,curl))**.5
+	return mag
 
-    RGB_list.append(curr_vector)
-
-  return color_dict(RGB_list)
-
-colors=linear_gradient()
-#print(colors)
-
-def rgb_to_cmyk(r, g, b):
-    if (r, g, b) == (0, 0, 0):
-        # black
-        return 0, 0, 0, 100
-
-    # rgb [0,255] -> cmy [0,1]
-    c = 1 - r / 255
-    m = 1 - g / 255
-    y = 1 - b / 255
-
-    # extract out k [0, 1]
-    min_cmy = min(c, m, y)
-    c = (c - min_cmy) / (1 - min_cmy)
-    m = (m - min_cmy) / (1 - min_cmy)
-    y = (y - min_cmy) / (1 - min_cmy)
-    k = min_cmy
-
-    return [c * 100, m * 100, y * 100, k * 100]
-#----------------ignore till this(nevermind ignore the color BS)-----------
-
-CMYK_colors= [list(rgb_to_cmyk(*w)) for w in colors ] #a list of cmyk lists
-#print(CMYK_colors)
-
-def getColor(norm):
-	colornorm=int(norm)
-	return CMYK_colors[1000*colornorm] #assuming maxScale is 0.5 for now. 100 samples in color, and hence 200
-
-"""
 
 def simulate(obj):
 	startFrame = bpy.context.scene.my_props.startFrame
@@ -212,7 +196,16 @@ def simulate(obj):
 		bpy.context.scene.frame_set(frame)
 		pos = (x[i], y[i], z[i])    #the position is taken from wsol, please improvise this code, I've unnecessarily, unpacked wsol again 
 
+		"""
+		if frame==startFrame:
+			bpy.ops.object.empty_add(type="PLAIN_AXES", location=obj.location)
+			parobj = bpy.context.object
+			#parobj.location=obj.location
+			obj.parent= parobj
+		"""	
+		getCurlAxis(obj,obj.location)
 		obj.keyframe_insert("location", frame=frame)
+		obj.keyframe_insert("rotation_quaternion", frame=frame)
 		if i == 0:
 			fc = [0,0,0]
 			for j in range(3):
@@ -396,3 +389,67 @@ def unregister():
 
 if __name__ == "__main__":
 	register()
+
+
+"""
+
+#--------COLOR_LOGIC---------------
+#absolute agony XDXDXD
+def hex_to_RGB(hex):
+  return [int(hex[i:i+2], 16) for i in range(1,6,2)]
+
+def RGB_to_hex(RGB):
+  RGB = [int(x) for x in RGB]
+  return "#"+"".join(["0{0:x}".format(v) if v < 16 else
+            "{0:x}".format(v) for v in RGB])
+
+def color_dict(gradient):
+  return [[RGB[0], RGB[1], RGB[2]] for RGB in gradient]
+
+def linear_gradient(start_hex="#1C758A", finish_hex="#F7A1A3", n=100):
+  s = hex_to_RGB(start_hex)
+  f = hex_to_RGB(finish_hex)
+
+  RGB_list = [s]
+
+  for t in range(1, n):
+    curr_vector = [
+      int(s[j] + (float(t)/(n-1))*(f[j]-s[j]))
+      for j in range(3)
+    ]
+
+    RGB_list.append(curr_vector)
+
+  return color_dict(RGB_list)
+
+colors=linear_gradient()
+#print(colors)
+
+def rgb_to_cmyk(r, g, b):
+    if (r, g, b) == (0, 0, 0):
+        # black
+        return 0, 0, 0, 100
+
+    # rgb [0,255] -> cmy [0,1]
+    c = 1 - r / 255
+    m = 1 - g / 255
+    y = 1 - b / 255
+
+    # extract out k [0, 1]
+    min_cmy = min(c, m, y)
+    c = (c - min_cmy) / (1 - min_cmy)
+    m = (m - min_cmy) / (1 - min_cmy)
+    y = (y - min_cmy) / (1 - min_cmy)
+    k = min_cmy
+
+    return [c * 100, m * 100, y * 100, k * 100]
+#----------------ignore till this(nevermind ignore the color BS)-----------
+
+CMYK_colors= [list(rgb_to_cmyk(*w)) for w in colors ] #a list of cmyk lists
+#print(CMYK_colors)
+
+def getColor(norm):
+	colornorm=int(norm)
+	return CMYK_colors[1000*colornorm] #assuming maxScale is 0.5 for now. 100 samples in color, and hence 200
+
+"""
