@@ -249,7 +249,7 @@ class FIELD_OT_generate_grid(bpy.types.Operator):
     bl_idname = "myops.field_generate_grid"
     bl_label = "Add Field Grid"
     bl_options = {'REGISTER', 'UNDO'}
-
+    bl_description= "Create the vector field"
     def execute(self,context):
         generateGrid()
         return {'FINISHED'}
@@ -258,7 +258,7 @@ class FIELD_OT_simulate(bpy.types.Operator):
     bl_idname = "myops.field_simulate"
     bl_label = "simulate Field Dynamics"
     bl_options = {'REGISTER', 'UNDO'}
-
+    bl_description= "Simulate object's motion"
     def execute(self,context):
         #add driver on the rotation of the object in field.
         for obj in bpy.context.selected_objects:
@@ -284,6 +284,7 @@ class FIELD_OT_update_field_equation(bpy.types.Operator):
     bl_idname = "myops.field_update_field_equation"
     bl_label = "use this to update drivers"
     bl_options = {'REGISTER', 'UNDO'}
+    bl_description= "Update the desired colour range"
 
     def execute(self,context):
         #bpy.app.driver_namespace['getScale'] = getScale
@@ -296,9 +297,9 @@ class FIELD_OT_update_field_equation(bpy.types.Operator):
 
 class FIELD_OT_reset_settings(bpy.types.Operator):
     bl_idname = "myops.reset_settings"
-    bl_label = ""
+    bl_label = "use this reset settings"
     bl_options = {'REGISTER', 'UNDO'}
-
+    bl_description= "Reset settings to default"
     def execute(self,context):
 		bpy.context.scene.my_props.CountProp=5
 		bpy.context.scene.my_props.SpacingProp=2
@@ -311,14 +312,25 @@ class FIELD_OT_reset_settings(bpy.types.Operator):
 
 class FIELD_OT_set_initial_conditions(bpy.types.Operator):
     bl_idname = "myops.set_initial_conditions"
-    bl_label = ""
+    bl_label = "use this to set initial conditions"
     bl_options = {'REGISTER', 'UNDO'}
-
+    bl_description= "Set Initial Conditions, before baking"
     def execute(self,context):
 		global x0,y0,z0
 		x0 = bpy.context.scene.my_props.x0
 		y0 = bpy.context.scene.my_props.y0
 		z0 = bpy.context.scene.my_props.z0
+		return {'FINISHED'}
+
+class FIELD_OT_auto_scale(bpy.types.Operator):
+    bl_idname = "myops.auto_scale"
+    bl_label = "use this to auto scale"
+    bl_options = {'REGISTER', 'UNDO'}
+    bl_description= "Set recommended scale range"
+
+    def execute(self,context):
+		bpy.context.scene.my_props.maxScale=MaxScale
+		bpy.context.scene.my_props.minScale=MinScale
 		return {'FINISHED'}
 
 #---------------------------UI---------------------------------
@@ -447,26 +459,41 @@ class UI_PT_class(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         rd = scene.my_props
-
+		
         layout.prop(rd, "CountProp", text = "Count")
         layout.prop(rd, "SpacingProp", text = "Spacing")
+
+		layout.label(text="Time:")
+		col = layout.column()
+        col.prop(rd, "startFrame", text = "start")
+        col.prop(rd, "endFrame", text = "end")
+
+		layout.label(text="Scale:")
         layout.prop(rd, "scaleMultiplier", text = "Scale Multiplier")
-        layout.prop(rd, "maxScale", text = "Max scale")
-        layout.prop(rd, "minScale", text = "Min scale")
+
+		layout.label(text="Vector Field:")
         layout.prop(rd, "P", text = "P")
         layout.prop(rd, "Q", text = "Q")
         layout.prop(rd, "R", text = "R")
         layout.operator("myops.field_generate_grid", text = "Create Grid")
+        
+		layout.label(text="Color Scale Range:")
+        layout.prop(rd, "maxScale", text = "Max scale")
+        layout.prop(rd, "minScale", text = "Min scale")
+        layout.operator("myops.auto_scale", text = "Auto Scale")
+        layout.operator("myops.field_update_field_equation", text = "Update Color Scale")
 
-        col = layout.column()
+
+		layout.label(text="Initial Conditions:")
         layout.prop(rd, "x0", text = "x0")
         layout.prop(rd, "y0", text = "y0")
         layout.prop(rd, "z0", text = "z0")
 		layout.operator("myops.set_initial_conditions", text = "Set Initial Conditions")
-        col.prop(rd, "startFrame", text = "start")
-        col.prop(rd, "endFrame", text = "end")
+
+
+
+		layout.label(text="General:")
         layout.operator("myops.field_simulate", text = "Bake")
-        layout.operator("myops.field_update_field_equation", text = "Update Drivers")
 		layout.operator("myops.reset_settings", text = "Reset")
 
 
@@ -481,6 +508,7 @@ classes = (
     FIELD_OT_update_field_equation,
 	FIELD_OT_reset_settings,
 	FIELD_OT_set_initial_conditions,
+    FIELD_OT_auto_scale,
 )
 
 def register():
